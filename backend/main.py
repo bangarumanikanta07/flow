@@ -626,7 +626,7 @@ def detect_drift(payload: DriftRequest):
             w_dist = wasserstein_distance(base_col, drift_col)
             psi, bins = calculate_psi_and_bins(base_col, drift_col)
 
-            is_drift = psi > 0.1 or (ks_res.pvalue < 0.05 and ks_res.statistic > 0.15)
+            is_drift = bool(psi > 0.1 or (ks_res.pvalue < 0.05 and ks_res.statistic > 0.15))
             if is_drift:
                 drift_count += 1
 
