@@ -94,6 +94,7 @@ class DriftRequest(BaseModel):
     targetCol: Optional[str] = None
     targetColumn: Optional[str] = None
     modelType: str = "random_forest"
+    hyperparameters: Optional[Dict[str, Any]] = None
     shiftConfig: ShiftConfig
 
     def get_target(self) -> str:
@@ -107,6 +108,7 @@ class ExplainRequest(BaseModel):
     targetCol: Optional[str] = None
     targetColumn: Optional[str] = None
     modelType: str = "random_forest"
+    hyperparameters: Optional[Dict[str, Any]] = None
     sampleIndex: int = 0
 
     def get_target(self) -> str:
@@ -145,8 +147,11 @@ def calculate_psi_and_bins(baseline: np.ndarray, drifted: np.ndarray, num_bins: 
         max_val += 1.0
 
     bins = np.linspace(min_val, max_val, num_bins + 1)
-    base_counts, _ = np.histogram(baseline, bins=bins)
-    drift_counts, _ = np.histogram(drifted, bins=bins)
+    # Open-ended outer bins so drifted values beyond the baseline range still count
+    count_edges = bins.copy()
+    count_edges[0], count_edges[-1] = -np.inf, np.inf
+    base_counts, _ = np.histogram(baseline, bins=count_edges)
+    drift_counts, _ = np.histogram(drifted, bins=count_edges)
 
     eps = 1e-4
     base_pct = (base_counts + eps) / (len(baseline) + eps * num_bins)
@@ -165,6 +170,30 @@ def calculate_psi_and_bins(baseline: np.ndarray, drifted: np.ndarray, num_bins: 
         })
 
     return round(psi_val, 4), bin_data
+
+
+def build_model(model_type: str, params: Optional[Dict[str, Any]] = None, seed: int = 42):
+    """Builds a classifier from UI (camelCase) or Optuna (snake_case) hyperparameters."""
+    params = params or {}
+    if model_type == "logistic_regression":
+        return LogisticRegression(
+            C=float(params.get("l2Reg", params.get("C", 1.0))),
+            max_iter=int(params.get("maxIter", params.get("max_iter", 200))),
+            random_state=seed
+        )
+    if model_type == "gradient_boosting":
+        return GradientBoostingClassifier(
+            n_estimators=int(params.get("nEstimators", params.get("n_estimators", 40))),
+            learning_rate=float(params.get("learningRate", params.get("learning_rate", 0.1))),
+            max_depth=int(params.get("maxDepth", params.get("max_depth", 4))),
+            random_state=seed
+        )
+    return RandomForestClassifier(
+        n_estimators=int(params.get("nEstimators", params.get("n_estimators", 40))),
+        max_depth=int(params.get("maxDepth", params.get("max_depth", 6))),
+        min_samples_split=int(params.get("minSamplesSplit", params.get("min_samples_split", 4))),
+        random_state=seed
+    )
 
 
 def prepare_data(rows: List[Dict[str, Any]], target_col: str, test_ratio: float = 0.25, seed: int = 42):
@@ -202,15 +231,17 @@ def prepare_data(rows: List[Dict[str, Any]], target_col: str, test_ratio: float 
     feature_names = list(X.columns)
 
     strat = y.values if len(np.unique(y.values)) > 1 and len(y) >= 10 else None
-    X_train, X_test, y_train, y_test = train_test_split(
-        X.values, y.values, test_size=test_ratio, random_state=seed, stratify=strat
+    X_train, X_test, y_train, y_test, _, test_idx = train_test_split(
+        X.values.astype(float), y.values, np.arange(len(df)),
+        test_size=test_ratio, random_state=seed, stratify=strat
     )
 
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    return X_train_scaled, X_test_scaled, y_train, y_test, feature_names, X_test, y.values
+    # test_idx maps each test row back to its position in the original `rows`
+    return X_train_scaled, X_test_scaled, y_train, y_test, feature_names, X_test, test_idx
 
 
 @app.get("/health")
@@ -292,27 +323,7 @@ def train_model(payload: TrainRequest):
         params = payload.hyperparameters or {}
         start_time = time.perf_counter()
 
-        if payload.modelType == "logistic_regression":
-            model = LogisticRegression(
-                C=float(params.get("l2Reg", params.get("C", 1.0))),
-                max_iter=int(params.get("maxIter", params.get("max_iter", 200))),
-                random_state=payload.seed
-            )
-        elif payload.modelType == "gradient_boosting":
-            model = GradientBoostingClassifier(
-                n_estimators=int(params.get("nEstimators", params.get("n_estimators", 40))),
-                learning_rate=float(params.get("learningRate", params.get("learning_rate", 0.1))),
-                max_depth=int(params.get("maxDepth", params.get("max_depth", 4))),
-                random_state=payload.seed
-            )
-        else:
-            model = RandomForestClassifier(
-                n_estimators=int(params.get("nEstimators", params.get("n_estimators", 40))),
-                max_depth=int(params.get("maxDepth", params.get("max_depth", 6))),
-                min_samples_split=int(params.get("minSamplesSplit", params.get("min_samples_split", 4))),
-                random_state=payload.seed
-            )
-
+        model = build_model(payload.modelType, params, seed)
         model.fit(X_train, y_train)
         train_time_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -590,13 +601,8 @@ def detect_drift(payload: DriftRequest):
             payload.rows, target_name
         )
 
-        if payload.modelType == "logistic_regression":
-            clf = LogisticRegression(random_state=42)
-        elif payload.modelType == "gradient_boosting":
-            clf = GradientBoostingClassifier(n_estimators=30, max_depth=4, random_state=42)
-        else:
-            clf = RandomForestClassifier(n_estimators=35, max_depth=5, random_state=42)
-
+        # Evaluate the same configuration the user trained/tuned, not a fresh default model
+        clf = build_model(payload.modelType, payload.hyperparameters)
         clf.fit(X_train, y_train)
 
         # Baseline performance
@@ -604,19 +610,26 @@ def detect_drift(payload: DriftRequest):
         base_acc = float(accuracy_score(y_test, base_preds))
         base_f1 = float(f1_score(y_test, base_preds, zero_division=0))
 
-        # Apply shifts
+        # Only perturb genuinely numeric source columns; one-hot dummies are 0/1 indicators
+        # and adding mean shift/noise to them produces meaningless, inflated PSI values
+        raw_df = pd.DataFrame(payload.rows)
+        numeric_cols = {c for c in raw_df.select_dtypes(include="number").columns if c != target_name}
+
+        # Apply shifts with a seeded RNG so identical requests give identical results
         cfg = payload.shiftConfig
+        rng = np.random.default_rng(42)
         shifted_X_test = X_test.copy()
         drift_metrics = []
         distribution_comparison = {}
         drift_count = 0
 
         for col_idx, feat in enumerate(feature_names):
+            if feat not in numeric_cols:
+                continue
             if not cfg.affectedFeatures or feat in cfg.affectedFeatures:
                 shifted_col = (shifted_X_test[:, col_idx] + (cfg.meanShiftPct / 100.0)) * cfg.varianceScale
                 if cfg.noiseLevel > 0:
-                    noise = np.random.normal(0, cfg.noiseLevel, len(shifted_col))
-                    shifted_col += noise
+                    shifted_col += rng.normal(0, cfg.noiseLevel, len(shifted_col))
                 shifted_X_test[:, col_idx] = shifted_col
 
             base_col = X_test[:, col_idx]
@@ -657,10 +670,13 @@ def detect_drift(payload: DriftRequest):
         acc_drop = round(float(((base_acc - shifted_acc) / (base_acc or 1)) * 100), 1)
         f1_drop = round(float(((base_f1 - shifted_f1) / (base_f1 or 1)) * 100), 1)
 
+        # A model whose predictions flip heavily under shift is unstable even if a metric
+        # happens to rise (e.g. an imbalanced model predicting more positives), so the
+        # flip rate counts toward the verdict alongside metric drops
         status = "ROBUST"
-        if acc_drop > 20 or f1_drop > 25:
+        if acc_drop > 20 or f1_drop > 25 or flip_pct > 30:
             status = "CRITICAL_FAILURE"
-        elif acc_drop > 8 or f1_drop > 10:
+        elif acc_drop > 8 or f1_drop > 10 or flip_pct > 10:
             status = "MODERATE_DEGRADATION"
 
         names = {
@@ -674,7 +690,7 @@ def detect_drift(payload: DriftRequest):
             "sampleCountBaseline": len(X_test),
             "sampleCountDrifted": len(shifted_X_test),
             "featureDriftMetrics": drift_metrics,
-            "overallDriftIndex": round(float(np.mean([m["psi"] for m in drift_metrics])), 3),
+            "overallDriftIndex": round(float(np.mean([m["psi"] for m in drift_metrics])), 3) if drift_metrics else 0.0,
             "driftedFeaturesCount": drift_count,
             "distributionComparison": distribution_comparison,
             "modelRobustness": {
@@ -698,17 +714,11 @@ def detect_drift(payload: DriftRequest):
 def explain_predictions(payload: ExplainRequest):
     try:
         target_name = payload.get_target()
-        X_train, X_test, y_train, y_test, feature_names, raw_X_test, _ = prepare_data(
+        X_train, X_test, y_train, y_test, feature_names, raw_X_test, test_idx = prepare_data(
             payload.rows, target_name
         )
 
-        if payload.modelType == "logistic_regression":
-            model = LogisticRegression(random_state=42)
-        elif payload.modelType == "gradient_boosting":
-            model = GradientBoostingClassifier(n_estimators=30, max_depth=4, random_state=42)
-        else:
-            model = RandomForestClassifier(n_estimators=35, max_depth=5, random_state=42)
-
+        model = build_model(payload.modelType, payload.hyperparameters)
         model.fit(X_train, y_train)
 
         # Baseline expected value E[f(x)]
@@ -760,8 +770,8 @@ def explain_predictions(payload: ExplainRequest):
         pred_label = int(sample_prob >= 0.5)
         actual_label = int(y_test[sample_idx])
 
-        # Raw sample feature values
-        raw_row = payload.rows[sample_idx] if sample_idx < len(payload.rows) else {}
+        # Raw feature values of the same test row that was explained (the test split is shuffled)
+        raw_row = payload.rows[int(test_idx[sample_idx])]
 
         local_contributions = []
         running_prob = base_value
@@ -773,7 +783,7 @@ def explain_predictions(payload: ExplainRequest):
             running_prob = max(0.0, min(1.0, running_prob + attr_val))
             local_contributions.append({
                 "feature": feat_name,
-                "featureValue": raw_row.get(feat_name, round(float(X_test[sample_idx, idx]), 2)),
+                "featureValue": raw_row.get(feat_name, round(float(raw_X_test[sample_idx, idx]), 2)),
                 "attribution": attr_val,
                 "runningProbability": round(running_prob, 3)
             })
@@ -844,28 +854,7 @@ def predict_transactions(payload: PredictRequest):
         X_train_scaled = scaler.fit_transform(X_train_encoded.values)
 
         # Fit model
-        params = payload.hyperparameters or {}
-        if payload.modelType == "logistic_regression":
-            model = LogisticRegression(
-                C=float(params.get("l2Reg", params.get("C", 1.0))),
-                max_iter=int(params.get("maxIter", params.get("max_iter", 200))),
-                random_state=42
-            )
-        elif payload.modelType == "gradient_boosting":
-            model = GradientBoostingClassifier(
-                n_estimators=int(params.get("nEstimators", params.get("n_estimators", 40))),
-                learning_rate=float(params.get("learningRate", params.get("learning_rate", 0.1))),
-                max_depth=int(params.get("maxDepth", params.get("max_depth", 4))),
-                random_state=42
-            )
-        else:
-            model = RandomForestClassifier(
-                n_estimators=int(params.get("nEstimators", params.get("n_estimators", 40))),
-                max_depth=int(params.get("maxDepth", params.get("max_depth", 6))),
-                min_samples_split=int(params.get("minSamplesSplit", params.get("min_samples_split", 4))),
-                random_state=42
-            )
-
+        model = build_model(payload.modelType, payload.hyperparameters)
         model.fit(X_train_scaled, y_train.values)
 
         # Process unseen test rows - CRITICAL: Strip target column if present in unseen data!
@@ -903,8 +892,12 @@ def predict_transactions(payload: PredictRequest):
                         detail=f"Column '{c}' expects numeric values, but non-numeric data was provided in the prediction CSV."
                     )
 
-        # One-hot encode test rows matching train columns exactly
-        test_encoded = pd.get_dummies(test_df_features, drop_first=True)
+        # One-hot encode test rows matching train columns exactly. No drop_first here: with
+        # a single row (or a batch missing some categories) drop_first would discard the row's
+        # own category. Reindexing to the training columns drops the reference level instead.
+        categorical_cols = [c for c in X_train_raw.columns if not pd.api.types.is_numeric_dtype(X_train_raw[c])]
+        test_df_features = test_df_features.astype({c: str for c in categorical_cols if c in test_df_features.columns})
+        test_encoded = pd.get_dummies(test_df_features, columns=categorical_cols)
         test_encoded = test_encoded.reindex(columns=feature_columns, fill_value=0)
         test_encoded = test_encoded.apply(pd.to_numeric, errors='coerce').fillna(0)
 
@@ -949,7 +942,10 @@ def predict_transactions(payload: PredictRequest):
             results.append(item)
 
         return {
-            "modelUsed": "Random Forest Classifier (Scikit-Learn)",
+            "modelUsed": {
+                "logistic_regression": "Logistic Regression (Scikit-Learn)",
+                "gradient_boosting": "Gradient Boosting Classifier (Scikit-Learn)"
+            }.get(payload.modelType, "Random Forest Classifier (Scikit-Learn)"),
             "totalSamples": len(results),
             "fraudCount": fraud_count,
             "legitimateCount": legit_count,
