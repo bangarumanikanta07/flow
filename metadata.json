@@ -1,0 +1,6 @@
+{
+  "name": "DriftForge AI",
+  "description": "An Adaptive Machine Learning Optimization and Data Drift Detection Platform with hyperparameter tuning, drift simulations, explainable AI, and model comparison.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
