@@ -29,6 +29,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const FASTAPI_INTERNAL_URL = 'http://127.0.0.1:8001';
+// Generous so slower hosted CPUs finish Optuna/SHAP instead of silently using the TS fallback
+const PY_REQUEST_TIMEOUT_MS = 120000;
 let pythonProcess: ChildProcess | null = null;
 
 function ensureFastApiProcess() {
@@ -62,6 +64,12 @@ function ensureFastApiProcess() {
       if (err.includes('ERROR') || err.includes('Traceback')) {
         console.warn(`[FastAPI Backend Error]: ${err.trim()}`);
       }
+    });
+
+    // Without this, a missing interpreter (ENOENT) would crash the whole server
+    pythonProcess.on('error', (err) => {
+      console.warn(`[FastAPI Backend] failed to start with '${pythonCmd}': ${err.message}`);
+      pythonProcess = null;
     });
 
     pythonProcess.on('exit', (code, signal) => {
@@ -100,6 +108,12 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
   const isProd = process.env.NODE_ENV === 'production';
+
+  // Wait for the Python core so the first requests aren't served by the fallback engine
+  const fastApiReady = await waitForFastApiReady(60, 500);
+  console.log(fastApiReady
+    ? '[FastAPI Backend] ready: requests use scikit-learn / Optuna / SHAP'
+    : '[FastAPI Backend] not reachable: using the integrated TypeScript fallback engine');
 
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
@@ -241,7 +255,7 @@ async function startServer() {
             testRatio: finalTestRatio,
             seed: finalSeed
           }),
-          signal: AbortSignal.timeout(15000)
+          signal: AbortSignal.timeout(PY_REQUEST_TIMEOUT_MS)
         });
 
         if (pyResp.ok) {
@@ -341,7 +355,7 @@ async function startServer() {
             nTrials,
             objectiveMetric
           }),
-          signal: AbortSignal.timeout(30000)
+          signal: AbortSignal.timeout(PY_REQUEST_TIMEOUT_MS)
         });
 
         if (pyResp.ok) {
@@ -380,7 +394,7 @@ async function startServer() {
             hyperparameters,
             shiftConfig: shiftConfig || { meanShiftPct: 25, varianceScale: 1.3, noiseLevel: 0.15, affectedFeatures: [] }
           }),
-          signal: AbortSignal.timeout(20000)
+          signal: AbortSignal.timeout(PY_REQUEST_TIMEOUT_MS)
         });
 
         if (pyResp.ok) {
@@ -436,7 +450,7 @@ async function startServer() {
             hyperparameters,
             sampleIndex
           }),
-          signal: AbortSignal.timeout(25000)
+          signal: AbortSignal.timeout(PY_REQUEST_TIMEOUT_MS)
         });
 
         if (pyResp.ok) {
@@ -494,7 +508,7 @@ async function startServer() {
             modelType,
             hyperparameters
           }),
-          signal: AbortSignal.timeout(20000)
+          signal: AbortSignal.timeout(PY_REQUEST_TIMEOUT_MS)
         });
 
         if (pyResp.ok) {

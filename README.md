@@ -1,3 +1,14 @@
+---
+title: DriftForge AI
+emoji: 📈
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: Adaptive ML optimization and data drift detection
+---
+
 # DriftForge AI – Adaptive Machine Learning Optimization & Data Drift Detection Platform
 
 [![Platform](https://img.shields.io/badge/Platform-MLOps%20%26%20Drift%20Detection-blue)](https://github.com)
@@ -129,6 +140,28 @@ Open [http://localhost:3000](http://localhost:3000). Keep this terminal open. Af
 5. **Explainable AI**: view global SHAP importance and the waterfall for any test sample.
 6. **Model Comparison**: compare all trained models and export the results as JSON.
 7. **Test Prediction**: score new records with the leading model.
+
+---
+
+## ☁️ Deploy to Hugging Face Spaces (free)
+
+The repo includes a `Dockerfile` that runs the whole app (web UI + Python backend) in one container, and the block at the top of this README configures it as a Hugging Face Space. Once deployed, anyone can use the app from a link, with nothing to install.
+
+1. Create a free account at [huggingface.co](https://huggingface.co).
+2. Click **New → Space**. Give it a name (e.g. `driftforge`), choose **Docker** as the SDK with the **Blank** template, leave hardware on the free **CPU basic** tier, and create it.
+3. Create an access token: profile picture → **Settings → Access Tokens → Create new token**, with the **Write** role. Copy it.
+4. From the project folder, push the code to the Space (replace `<username>` and `<space-name>`):
+   ```bash
+   git remote add space https://huggingface.co/spaces/<username>/<space-name>
+   git push --force space main
+   ```
+   When asked, enter your Hugging Face username, and paste the token as the password. `--force` is only needed the first time, to replace the Space's placeholder files.
+5. Open the Space page. The first build takes about 5–10 minutes (progress is under **Logs**). When it shows **Running**, the app is live at `https://huggingface.co/spaces/<username>/<space-name>`.
+6. Check `https://<username>-<space-name>.hf.space/api/health` shows `"fastApiBridgeReady": true`.
+
+**To update the live app later:** push to GitHub as usual, then run `git push space main`.
+
+Free Spaces sleep after 48 hours without visitors and wake up on the next visit (takes a minute or two). The link is public, so anyone who has it can use the app.
 
 ---
 
