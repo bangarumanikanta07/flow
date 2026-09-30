@@ -69,7 +69,12 @@ Python FastAPI core (backend/main.py, port 8001, started automatically)
 
 ## 🚀 Running Locally
 
-**Prerequisites:** Node.js 18+ and Python 3.10+.
+**Prerequisites:**
+- **Node.js 20.19+ or 22.12+** (required by Vite). Check with `node -v`.
+- **Python 3.12+ recommended** (3.10 is the minimum; older versions install older SHAP/scikit-learn releases that are untested). Check with `python --version`.
+- About 1 GB of disk space and an internet connection for the first install.
+
+Dependency versions are pinned in `package-lock.json` (Node) so every machine installs the same, tested versions.
 
 ### 1. Install dependencies (once)
 
