@@ -90,7 +90,7 @@ export const OptimizationView: React.FC<OptimizationViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-mono">Backend: Optuna Core v3.6</span>
+            <span className="text-xs text-slate-400 font-mono">Backend: Optuna TPE</span>
           </div>
         </div>
 

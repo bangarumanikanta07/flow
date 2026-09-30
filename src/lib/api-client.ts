@@ -339,6 +339,7 @@ export async function explainPredictionsApi(params: {
   rows: Record<string, string | number>[];
   targetCol: string;
   modelType: ModelType;
+  hyperparameters?: Record<string, any>;
   sampleIndex?: number;
 }): Promise<ExplainabilityResult> {
   try {

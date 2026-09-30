@@ -28,6 +28,10 @@ import {
   ZAxis
 } from 'recharts';
 
+// Drop percentages are positive when a metric fell; show the signed change instead of prefixing '-'
+const formatMetricChange = (dropPct: number) => (dropPct > 0 ? `-${dropPct}%` : `+${Math.abs(dropPct)}%`);
+const metricChangeClass = (dropPct: number) => (dropPct > 0 ? 'text-rose-400' : 'text-emerald-400');
+
 interface ComparisonViewProps {
   models: TrainedModelResult[];
   activeDrift: DriftAnalysisResult | null;
@@ -183,8 +187,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                       </div>
                       <div className="flex justify-between text-xs">
                         <span className="text-slate-400">Performance Drop</span>
-                        <span className="font-mono text-rose-400">
-                          -{activeDrift.modelRobustness.f1DropPct}%
+                        <span className={`font-mono ${metricChangeClass(activeDrift.modelRobustness.f1DropPct)}`}>
+                          {formatMetricChange(activeDrift.modelRobustness.f1DropPct)}
                         </span>
                       </div>
                       <div className="flex justify-between text-xs">

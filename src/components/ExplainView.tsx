@@ -53,6 +53,7 @@ export const ExplainView: React.FC<ExplainViewProps> = ({
         rows: rawRows,
         targetCol: dataset.targetColumn,
         modelType: activeModel?.modelType || 'random_forest',
+        hyperparameters: activeModel?.hyperparameters,
         sampleIndex: idx
       });
       setExplainResult(res);

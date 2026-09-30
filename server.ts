@@ -377,6 +377,7 @@ async function startServer() {
             rows,
             targetCol: target,
             modelType,
+            hyperparameters,
             shiftConfig: shiftConfig || { meanShiftPct: 25, varianceScale: 1.3, noiseLevel: 0.15, affectedFeatures: [] }
           }),
           signal: AbortSignal.timeout(20000)
@@ -420,7 +421,7 @@ async function startServer() {
   // Explainability endpoint - bridges to SHAP in Python
   app.post('/api/explain', async (req: Request, res: Response) => {
     try {
-      const { rows, targetCol, targetColumn, modelType, sampleIndex = 0 } = req.body;
+      const { rows, targetCol, targetColumn, modelType, hyperparameters, sampleIndex = 0 } = req.body;
       const target = targetCol || targetColumn;
 
       try {
@@ -432,6 +433,7 @@ async function startServer() {
             rows,
             targetCol: target,
             modelType,
+            hyperparameters,
             sampleIndex
           }),
           signal: AbortSignal.timeout(25000)

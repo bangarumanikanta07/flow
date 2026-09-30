@@ -30,6 +30,10 @@ import {
 } from 'recharts';
 import { analyzeDriftApi } from '../lib/api-client';
 
+// Drop percentages are positive when a metric fell; show the signed change instead of prefixing '-'
+const formatMetricChange = (dropPct: number) => (dropPct > 0 ? `-${dropPct}%` : `+${Math.abs(dropPct)}%`);
+const metricChangeClass = (dropPct: number) => (dropPct > 0 ? 'text-rose-400' : 'text-emerald-400');
+
 interface DriftViewProps {
   dataset: DatasetSummary | null;
   rawRows: Record<string, string | number>[];
@@ -61,6 +65,7 @@ export const DriftView: React.FC<DriftViewProps> = ({
         rows: rawRows,
         targetCol: dataset.targetColumn,
         modelType: activeModel?.modelType || 'random_forest',
+        hyperparameters: activeModel?.hyperparameters,
         shiftConfig: {
           meanShiftPct,
           varianceScale,
@@ -243,8 +248,8 @@ export const DriftView: React.FC<DriftViewProps> = ({
                 <span className="text-2xl font-bold font-mono text-white">
                   {(driftResult.modelRobustness.driftedAccuracy * 100).toFixed(1)}%
                 </span>
-                <span className="text-xs font-mono text-rose-400">
-                  (-{driftResult.modelRobustness.accuracyDropPct}%)
+                <span className={`text-xs font-mono ${metricChangeClass(driftResult.modelRobustness.accuracyDropPct)}`}>
+                  ({formatMetricChange(driftResult.modelRobustness.accuracyDropPct)})
                 </span>
               </div>
               <span className="text-[11px] text-slate-500">
@@ -259,8 +264,8 @@ export const DriftView: React.FC<DriftViewProps> = ({
                 <span className="text-2xl font-bold font-mono text-cyan-300">
                   {(driftResult.modelRobustness.driftedF1 * 100).toFixed(1)}%
                 </span>
-                <span className="text-xs font-mono text-rose-400">
-                  (-{driftResult.modelRobustness.f1DropPct}%)
+                <span className={`text-xs font-mono ${metricChangeClass(driftResult.modelRobustness.f1DropPct)}`}>
+                  ({formatMetricChange(driftResult.modelRobustness.f1DropPct)})
                 </span>
               </div>
               <span className="text-[11px] text-slate-500">
