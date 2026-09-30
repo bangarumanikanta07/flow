@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import Papa from 'papaparse';
 import {
@@ -37,7 +38,13 @@ function ensureFastApiProcess() {
 
   try {
     const backendDir = path.resolve(__dirname, 'backend');
-    pythonProcess = spawn('python3', ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8001'], {
+    // Prefer the backend virtualenv so the interpreter actually has fastapi/sklearn/optuna installed
+    const venvPython = process.platform === 'win32'
+      ? path.join(backendDir, '.venv', 'Scripts', 'python.exe')
+      : path.join(backendDir, '.venv', 'bin', 'python');
+    const pythonCmd = process.env.PYTHON
+      || (existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3');
+    pythonProcess = spawn(pythonCmd,['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8001'], {
       cwd: backendDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false
